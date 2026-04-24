@@ -1,10 +1,219 @@
-<html lang="en">
+<!DOCTYPE html>
+<html lang="no">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ticket system</title>
+    <title>Enterprise Service Desk PRO</title>
+    <style>
+        :root { 
+            --primary: #2563eb; 
+            --dark: #0f172a; 
+            --success: #10b981; 
+            --danger: #ef4444;
+            --bg: #f8fafc; 
+        }
+        
+        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); margin: 0; color: #1e293b; }
+        
+        /* Navigasjon */
+        .navbar { background: var(--dark); color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .logo { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.5px; }
+        .logo span { color: var(--primary); }
+
+        /* Layout */
+        .container { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+        .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1.5rem; border: 1px solid #e2e8f0; }
+        .hidden { display: none !important; }
+        
+        /* Skjema-elementer */
+        input, textarea { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 1rem; box-sizing: border-box; }
+        button { padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        
+        .btn-blue { background: var(--primary); color: white; width: 100%; }
+        .btn-blue:hover { background: #1d4ed8; }
+        .btn-outline { background: transparent; border: 1px solid white; color: white; padding: 6px 12px; font-size: 0.8rem; }
+        .btn-resolve { background: var(--success); color: white; width: auto; margin-top: 10px; }
+        .btn-delete { background: var(--danger); color: white; padding: 5px 10px; font-size: 0.75rem; border-radius: 4px; }
+
+        /* Ticket-styling */
+        .ticket { border: 1px solid #e2e8f0; padding: 1.5rem; margin-top: 1rem; border-radius: 8px; background: white; border-left: 5px solid #94a3b8; position: relative; }
+        .ticket.Ny { border-left-color: var(--primary); }
+        .ticket.Fullført { border-left-color: var(--success); opacity: 0.8; }
+        
+        .badge { font-size: 0.7rem; padding: 4px 8px; border-radius: 4px; font-weight: bold; text-transform: uppercase; }
+        .status-Ny { background: #dbeafe; color: #1e40af; }
+        .status-Fullført { background: #dcfce7; color: #15803d; }
+        
+        .ticket-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    </style>
 </head>
 <body>
-    
+
+    <nav class="navbar">
+        <div class="logo">ServiceDesk<span>PRO</span></div>
+        <div id="navInfo" class="hidden">
+            <span id="userTag" style="font-size: 0.85rem; margin-right: 10px;"></span>
+            <button class="btn-outline" id="logoutBtn">Logg ut</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div id="authSection" class="card">
+            <h2 style="margin-top:0;">Systemloginn</h2>
+            <input type="email" id="emailInput" placeholder="E-postadresse">
+            <input type="password" id="passInput" placeholder="Passord">
+            <button class="btn-blue" id="loginBtn">LOGG INN</button>
+            <button id="regBtn" style="background:none; color: var(--primary); width:100%; margin-top:10px; font-size: 0.9rem;">Opprett ny brukerkonto</button>
+        </div>
+
+        <div id="appSection" class="hidden">
+            
+            <div id="ticketForm" class="card">
+                <h3 style="margin-top:0;">Opprett ny støttesak</h3>
+                <input type="text" id="tTitle" placeholder="Hva trenger du hjelp med?">
+                <textarea id="tDesc" rows="3" placeholder="Beskriv problemet ditt her..."></textarea>
+                <button class="btn-blue" id="sendBtn" style="width: auto;">Send forespørsel</button>
+            </div>
+
+            <div class="card">
+                <h3 id="listHeader" style="margin-top:0;">Dine saker</h3>
+                <div id="ticketList">Laster systemdata...</div>
+            </div>
+        </div>
+    </div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, onSnapshot, query, where, doc, updateDoc, setDoc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyA6ZMjlVXSnpRLSxYnfDgfr39LnDTBchcI",
+        authDomain: "ticket-system-22e3b.firebaseapp.com",
+        projectId: "ticket-system-22e3b",
+        storageBucket: "ticket-system-22e3b.firebasestorage.app",
+        messagingSenderId: "1016922388739",
+        appId: "1:1016922388739:web:c0875c6f807776a3f25136"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // ADMIN KONFIGURASJON
+    const MY_ADMIN_EMAIL = "sondreadmin@gmail.com";
+
+    // --- BRUKERHANDLINGER ---
+
+    document.getElementById('loginBtn').onclick = () => {
+        const email = document.getElementById('emailInput').value.trim();
+        const pass = document.getElementById('passInput').value;
+        if (!email || !pass) return alert("Vennligst fyll ut alle felt");
+        signInWithEmailAndPassword(auth, email, pass).catch(e => alert("Innlogging feilet: " + e.message));
+    };
+
+    document.getElementById('regBtn').onclick = async () => {
+        const email = document.getElementById('emailInput').value.trim();
+        const pass = document.getElementById('passInput').value;
+        if (pass.length < 6) return alert("Passordet må være minst 6 tegn");
+
+        try {
+            const res = await createUserWithEmailAndPassword(auth, email, pass);
+            const role = (email.toLowerCase() === MY_ADMIN_EMAIL.toLowerCase()) ? "admin" : "bruker";
+            await setDoc(doc(db, "users", res.user.uid), { email, role });
+            alert("Konto er opprettet!");
+        } catch (e) { alert("Kunne ikke opprette konto: " + e.message); }
+    };
+
+    document.getElementById('logoutBtn').onclick = () => {
+        signOut(auth).then(() => location.reload());
+    };
+
+    // --- SYSTEM LOGIKK ---
+
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('appSection').classList.remove('hidden');
+            document.getElementById('navInfo').classList.remove('hidden');
+
+            const isAdmin = (user.email.toLowerCase() === MY_ADMIN_EMAIL.toLowerCase());
+            document.getElementById('userTag').innerText = isAdmin ? `MODERATOR: ${user.email}` : user.email;
+            document.getElementById('listHeader').innerText = isAdmin ? "ADMIN PANEL - Alle systembilletter" : "Dine innsendte saker";
+
+            renderTickets(isAdmin, user.uid);
+        } else {
+            document.getElementById('authSection').classList.remove('hidden');
+            document.getElementById('appSection').classList.add('hidden');
+            document.getElementById('navInfo').classList.add('hidden');
+        }
+    });
+
+    function renderTickets(isAdmin, uid) {
+        let q = collection(db, "tickets");
+        if (!isAdmin) {
+            q = query(collection(db, "tickets"), where("uid", "==", uid));
+        }
+
+        onSnapshot(q, (snap) => {
+            const container = document.getElementById('ticketList');
+            container.innerHTML = "";
+            
+            if (snap.empty) container.innerHTML = "<p style='color:#64748b'>Ingen saker funnet.</p>";
+
+            snap.forEach(d => {
+                const t = d.data();
+                const tid = d.id;
+                const div = document.createElement('div');
+                div.className = `ticket ${t.status}`;
+                div.innerHTML = `
+                    <div class="ticket-header">
+                        <span class="badge status-${t.status}">${t.status}</span>
+                        ${isAdmin ? `<button onclick="deleteTicket('${tid}')" class="btn-delete">SLETT</button>` : ""}
+                    </div>
+                    <h4 style="margin: 0 0 10px 0;">${t.title}</h4>
+                    <p style="font-size: 0.95rem; line-height: 1.5; color: #334155; margin-bottom: 15px;">${t.desc}</p>
+                    <div style="font-size: 0.8rem; color: #64748b; border-top: 1px solid #f1f5f9; padding-top: 10px;">
+                        Innmeldt av: ${t.email}
+                    </div>
+                    ${isAdmin && t.status !== "Fullført" ? `
+                        <button onclick="resolveTicket('${tid}')" class="btn-resolve">Marker som fullført</button>
+                    ` : ""}
+                `;
+                container.appendChild(div);
+            });
+        });
+    }
+
+    document.getElementById('sendBtn').onclick = async () => {
+        const title = document.getElementById('tTitle').value;
+        const desc = document.getElementById('tDesc').value;
+        if (!title) return alert("Tittel mangler");
+
+        try {
+            await addDoc(collection(db, "tickets"), {
+                title, desc, status: "Ny",
+                uid: auth.currentUser.uid,
+                email: auth.currentUser.email,
+                createdAt: Date.now()
+            });
+            document.getElementById('tTitle').value = "";
+            document.getElementById('tDesc').value = "";
+            alert("Saken din er sendt!");
+        } catch (e) { alert("Kunne ikke sende sak."); }
+    };
+
+    // --- ADMIN FUNKSJONER (Globale) ---
+    window.resolveTicket = async (id) => {
+        await updateDoc(doc(db, "tickets", id), { status: "Fullført" });
+    };
+
+    window.deleteTicket = async (id) => {
+        if (confirm("Vil du slette denne saken permanent fra databasen?")) {
+            await deleteDoc(doc(db, "tickets", id));
+        }
+    };
+
+</script>
 </body>
 </html>
